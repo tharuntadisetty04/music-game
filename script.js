@@ -17,15 +17,15 @@ const mappings = {
   guitar: {
     keys: ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
     sounds: [
+      "guitar_E2.mp3",
+      "guitar_A2.mp3",
+      "guitar_D3.mp3",
+      "guitar_G3.mp3",
+      "guitar_B3.mp3",
       "guitar_E4.mp3",
-      "guitar_F4.mp3",
+      "guitar_A3.mp3",
+      "guitar_D4.mp3",
       "guitar_G4.mp3",
-      "guitar_A4.mp3",
-      "guitar_B4.mp3",
-      "guitar_C5.mp3",
-      "guitar_D5.mp3",
-      "guitar_E5.mp3",
-      "guitar_F5.mp3",
     ],
   },
   drums: {
@@ -42,62 +42,55 @@ const mappings = {
   },
 };
 
-const NOTE_FREQUENCIES = {
-  "guitar_E4.mp3": 329.63,
-  "guitar_F4.mp3": 349.23,
-  "guitar_G4.mp3": 392.0,
-  "guitar_A4.mp3": 440.0,
-  "guitar_B4.mp3": 493.88,
-  "guitar_C5.mp3": 523.25,
-  "guitar_D5.mp3": 587.33,
-  "guitar_E5.mp3": 659.25,
-  "guitar_F5.mp3": 698.46,
-};
+const guitarNotes = [
+  { key: "a", freq: 82.41 },
+  { key: "s", freq: 110.0 },
+  { key: "d", freq: 146.83 },
+  { key: "f", freq: 196.0 },
+  { key: "g", freq: 246.94 },
+  { key: "h", freq: 329.63 },
+  { key: "j", freq: 220.0 },
+  { key: "k", freq: 293.66 },
+  { key: "l", freq: 392.0 },
+];
+
+const guitarFreqMap = {};
+guitarNotes.forEach((n) => (guitarFreqMap[n.key] = n.freq));
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-function playGuitarTone(frequency) {
-  const sampleRate = audioCtx.sampleRate;
-  const bufferSize = Math.round(sampleRate / frequency);
-  const duration = 3.0;
-  const totalSamples = Math.round(sampleRate * duration);
+function playGuitarTone(freq) {
+  const ctx = audioCtx;
+  const sampleRate = ctx.sampleRate;
+  const bufLen = Math.round(sampleRate / freq);
+  const buf = ctx.createBuffer(1, sampleRate * 3, sampleRate);
+  const data = buf.getChannelData(0);
 
-  const noiseBuffer = new Float32Array(bufferSize);
-  for (let i = 0; i < bufferSize; i++) {
-    noiseBuffer[i] = Math.random() * 2 - 1;
+  for (let i = 0; i < bufLen; i++) {
+    data[i] = Math.random() * 2 - 1;
   }
 
-  const output = new Float32Array(totalSamples);
-  for (let i = 0; i < totalSamples; i++) {
-    const pos = i % bufferSize;
-    const next = (pos + 1) % bufferSize;
-    noiseBuffer[pos] = 0.996 * 0.5 * (noiseBuffer[pos] + noiseBuffer[next]);
-    output[i] = noiseBuffer[pos];
+  for (let i = bufLen; i < data.length; i++) {
+    data[i] = 0.996 * 0.5 * (data[i - bufLen] + data[i - bufLen + 1]);
   }
 
-  const audioBuffer = audioCtx.createBuffer(1, totalSamples, sampleRate);
-  audioBuffer.copyToChannel(output, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
 
-  const source = audioCtx.createBufferSource();
-  source.buffer = audioBuffer;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.8, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3);
 
-  const filter = audioCtx.createBiquadFilter();
+  const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.value = 4000;
 
-  const gainNode = audioCtx.createGain();
-  gainNode.gain.setValueAtTime(1.0, audioCtx.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(
-    0.001,
-    audioCtx.currentTime + duration,
-  );
+  src.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
 
-  source.connect(filter);
-  filter.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-
-  source.start();
-  source.stop(audioCtx.currentTime + duration);
+  src.start(ctx.currentTime);
+  src.stop(ctx.currentTime + 3);
 }
 
 const keyElements = {};
@@ -110,6 +103,7 @@ function createInstrument(name, containerId) {
     div.textContent = key.toUpperCase();
     div.dataset.sound = mappings[name].sounds[i];
     div.dataset.instrument = name;
+    div.dataset.key = key;
     keyElements[key] = div;
 
     div.onclick = () => playSound(div);
@@ -118,13 +112,13 @@ function createInstrument(name, containerId) {
 }
 
 function playSound(el) {
-  const sound = el.dataset.sound;
   const instrument = el.dataset.instrument;
+  const key = el.dataset.key;
 
-  if (instrument === "guitar" && NOTE_FREQUENCIES[sound]) {
-    playGuitarTone(NOTE_FREQUENCIES[sound]);
+  if (instrument === "guitar" && guitarFreqMap[key] !== undefined) {
+    playGuitarTone(guitarFreqMap[key]);
   } else {
-    const audio = new Audio(`sounds/${instrument}/${sound}`);
+    const audio = new Audio(`sounds/${instrument}/${el.dataset.sound}`);
     audio.currentTime = 0;
     audio.play();
   }
